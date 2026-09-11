@@ -1,14 +1,14 @@
 /* 兼职收入账本 Service Worker：离线可用 + 快速打开 */
 'use strict';
-const CACHE = 'jzjz-v3';
+const CACHE = 'jzjz-v4';
 const ASSETS = [
   './',
   './index.html',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-512.png',
-  './icons/apple-touch-icon.png'
+  './manifest.webmanifest?v=3',
+  './icons/icon-192.png?v=3',
+  './icons/icon-512.png?v=3',
+  './icons/icon-maskable-512.png?v=3',
+  './icons/apple-touch-icon.png?v=3'
 ];
 
 self.addEventListener('install', e => {
