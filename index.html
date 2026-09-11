@@ -185,6 +185,32 @@
     max-width:82%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ===== 备份/导入弹窗 ===== */
+  .modal{
+    position:fixed;inset:0;background:rgba(10,14,20,.55);display:none;
+    align-items:flex-end;justify-content:center;z-index:50;
+    padding:0 12px calc(14px + env(safe-area-inset-bottom));
+  }
+  .modal.open{display:flex}
+  .sheet{
+    background:var(--card);border-radius:16px;width:100%;max-width:496px;
+    padding:16px;max-height:84vh;overflow-y:auto;
+  }
+  .sheet-title{font-size:16px;font-weight:800;margin-bottom:10px}
+  .sheet-btns{display:flex;gap:10px;margin:10px 0}
+  .sheet textarea{
+    width:100%;min-height:120px;border:1px solid var(--border);border-radius:10px;
+    background:var(--input-bg);color:var(--text);padding:10px;font-size:12px;
+    font-family:inherit;resize:vertical;-webkit-user-select:text;user-select:text;
+  }
+  .sheet-note{font-size:12px;color:var(--muted);margin-top:8px}
+  .wechat-hint{font-size:13px;color:var(--danger);font-weight:600;margin-bottom:4px}
+  .btn-ghost2{flex:1;background:var(--primary-weak);color:var(--primary-strong);font-size:14px}
+  .sheet-close{
+    display:block;width:100%;margin-top:8px;background:none;border:none;
+    color:var(--muted);font-size:14px;padding:8px;
+  }
 </style>
 </head>
 <body>
@@ -278,6 +304,38 @@
     <button type="button" data-tab="stats"><span class="ico">📊</span>统计</button>
   </nav>
 </div>
+
+<!-- 备份弹窗 -->
+<div class="modal" id="backupModal">
+  <div class="sheet">
+    <div class="sheet-title">📤 备份数据</div>
+    <p class="wechat-hint" id="bakWechatHint" hidden>⚠️ 微信内无法下载文件，请点「复制备份文本」</p>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-primary" id="bakDownload">下载备份文件</button>
+      <button type="button" class="btn btn-ghost2" id="bakCopy">复制备份文本</button>
+    </div>
+    <textarea id="bakTextarea" readonly></textarea>
+    <p class="sheet-note">恢复方式：任意设备打开本应用 → 导入 → 选文件或粘贴这段文本</p>
+    <button type="button" class="sheet-close" data-close="backupModal">关闭</button>
+  </div>
+</div>
+
+<!-- 导入弹窗 -->
+<div class="modal" id="importModal">
+  <div class="sheet">
+    <div class="sheet-title">📥 导入数据</div>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-ghost2" id="impFileBtn">选择备份文件（.json）</button>
+    </div>
+    <textarea id="impTextarea" placeholder="或把备份文本粘贴到这里…"></textarea>
+    <div class="sheet-btns">
+      <button type="button" class="btn btn-primary" id="impTextBtn">导入粘贴的文本</button>
+    </div>
+    <p class="sheet-note">已存在的记录自动跳过，不会重复导入</p>
+    <button type="button" class="sheet-close" data-close="importModal">关闭</button>
+  </div>
+</div>
+
 <div id="toast" role="status"></div>
 
 <script>
@@ -578,53 +636,104 @@ $('#rangeStart').addEventListener('change',renderStats);
 $('#rangeEnd').addEventListener('change',renderStats);
 
 /* ================= 导出 / 导入 ================= */
-$('#btnExport').addEventListener('click',()=>{
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+function backupJSONText(){return JSON.stringify(state,null,2);}
+function markExported(){
+  state.lastExportAt=Date.now();
+  state.exportedCount=state.entries.length;
+  persist();renderBackupBanner();
+}
+
+/* 备份弹窗 */
+function openBackupModal(){
+  $('#bakTextarea').value=backupJSONText();
+  $('#bakWechatHint').hidden=!/MicroMessenger/i.test(navigator.userAgent);
+  $('#backupModal').classList.add('open');
+}
+$('#btnExport').addEventListener('click',openBackupModal);
+$('#bakNow').addEventListener('click',openBackupModal);
+$('#bakClose').addEventListener('click',()=>{$('#backupBanner').hidden=true;});
+
+$('#bakDownload').addEventListener('click',()=>{
+  const blob=new Blob([backupJSONText()],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='兼职收入备份-'+todayISO()+'.json';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
-  state.lastExportAt=Date.now();
-  state.exportedCount=state.entries.length;
-  persist();
-  renderBackupBanner();
-  toast('已导出备份文件');
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  markExported();
+  toast('已下载备份文件');
 });
-$('#bakNow').addEventListener('click',()=>$('#btnExport').click());
-$('#bakClose').addEventListener('click',()=>{$('#backupBanner').hidden=true;});
 
-$('#btnImport').addEventListener('click',()=>$('#importFile').click());
+$('#bakCopy').addEventListener('click',async()=>{
+  const txt=backupJSONText();
+  let ok=false;
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(txt);ok=true;
+    }
+  }catch(e){}
+  if(!ok){
+    const ta=$('#bakTextarea');
+    ta.focus();ta.select();ta.setSelectionRange(0,txt.length);
+    try{ok=document.execCommand('copy');}catch(e){ok=false;}
+  }
+  if(ok){markExported();toast('已复制，可去其他浏览器粘贴导入');}
+  else{toast('自动复制失败，请长按上方文本框手动复制');}
+});
+
+/* 导入弹窗 */
+$('#btnImport').addEventListener('click',()=>$('#importModal').classList.add('open'));
+$('#impFileBtn').addEventListener('click',()=>$('#importFile').click());
 $('#importFile').addEventListener('change',ev=>{
   const file=ev.target.files[0];
   ev.target.value='';
   if(!file)return;
   const reader=new FileReader();
-  reader.onload=()=>{
-    let data;
-    try{data=JSON.parse(reader.result);}
-    catch(e){toast('文件不是有效的 JSON');return;}
-    if(!data||!Array.isArray(data.entries)){toast('文件格式不对（缺少记录）');return;}
-    const validDate=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
-    const newE=data.entries.filter(e=>e&&typeof e.amount==='number'&&isFinite(e.amount)&&validDate(e.date)&&!state.entries.some(x=>x.id===e.id));
-    const newT=(Array.isArray(data.templates)?data.templates:[]).filter(t=>t&&t.name&&!state.templates.some(x=>x.id===t.id||x.name===t.name));
-    if(!newE.length&&!newT.length){toast('没有新数据可导入');return;}
-    if(!confirm('将导入 '+newE.length+' 笔记录、'+newT.length+' 个常用模板（已存在的自动跳过），继续？'))return;
-    newE.forEach(e=>state.entries.push({
-      id:e.id||uid(),name:String(e.name||'未命名'),amount:e.amount,date:e.date,
-      hours:(typeof e.hours==='number'&&e.hours>=0)?e.hours:null,
-      category:e.category?String(e.category):'',createdAt:e.createdAt||Date.now()
-    }));
-    newT.forEach(t=>state.templates.push({
-      id:t.id||uid(),name:String(t.name),
-      category:t.category?String(t.category):'',
-      amount:(typeof t.amount==='number')?t.amount:null,
-      hours:(typeof t.hours==='number'&&t.hours>=0)?t.hours:null
-    }));
-    persist();renderAll();toast('导入成功');
-  };
+  reader.onload=()=>importData(reader.result);
   reader.readAsText(file,'utf-8');
 });
+$('#impTextBtn').addEventListener('click',()=>{
+  const txt=$('#impTextarea').value.trim();
+  if(!txt){toast('请先粘贴备份文本');return;}
+  importData(txt);
+});
+
+function importData(text){
+  let data;
+  try{data=JSON.parse(text);}
+  catch(e){toast('内容不是有效的备份');return;}
+  if(!data||!Array.isArray(data.entries)){toast('内容格式不对（缺少记录）');return;}
+  const validDate=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s);
+  const newE=data.entries.filter(e=>e&&typeof e.amount==='number'&&isFinite(e.amount)&&validDate(e.date)&&!state.entries.some(x=>x.id===e.id));
+  const newT=(Array.isArray(data.templates)?data.templates:[]).filter(t=>t&&t.name&&!state.templates.some(x=>x.id===t.id||x.name===t.name));
+  if(!newE.length&&!newT.length){toast('没有新数据可导入');return;}
+  if(!confirm('将导入 '+newE.length+' 笔记录、'+newT.length+' 个常用模板（已存在的自动跳过），继续？'))return;
+  newE.forEach(e=>state.entries.push({
+    id:e.id||uid(),name:String(e.name||'未命名'),amount:e.amount,date:e.date,
+    hours:(typeof e.hours==='number'&&e.hours>=0)?e.hours:null,
+    category:e.category?String(e.category):'',createdAt:e.createdAt||Date.now()
+  }));
+  newT.forEach(t=>state.templates.push({
+    id:t.id||uid(),name:String(t.name),
+    category:t.category?String(t.category):'',
+    amount:(typeof t.amount==='number')?t.amount:null,
+    hours:(typeof t.hours==='number'&&t.hours>=0)?t.hours:null
+  }));
+  persist();renderAll();
+  $('#importModal').classList.remove('open');
+  $('#impTextarea').value='';
+  toast('导入成功');
+}
+
+/* 弹窗关闭 */
+document.querySelectorAll('.sheet-close').forEach(b=>b.addEventListener('click',()=>{
+  document.getElementById(b.dataset.close).classList.remove('open');
+}));
+document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',ev=>{
+  if(ev.target===m)m.classList.remove('open');
+}));
 
 /* ================= 备份提醒 ================= */
 function renderBackupBanner(){
