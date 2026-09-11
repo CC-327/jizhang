@@ -1,6 +1,6 @@
 /* 兼职收入账本 Service Worker：离线可用 + 快速打开 */
 'use strict';
-const CACHE = 'jzjz-v4';
+const CACHE = 'jzjz-v5';
 const ASSETS = [
   './',
   './index.html',
